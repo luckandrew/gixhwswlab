@@ -80,6 +80,7 @@ windowSize = 6 # just for reference
 list1 = []
 list2 = []
 list3 = []
+person1 = {'motion':[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
 #list21 = []
 #list22 = []
 tempMovements = []
@@ -124,7 +125,8 @@ def returnNormalizedKeypoints(keypoints):
 	#returned the normalized keypoint
 	return temp
 
-
+#def returnLevelOfRandomness(keypointHistory):
+	
 datum = op.Datum()
 while True:
 	#need this to happen a bit after the program loads otherwise it throws a memory error
@@ -139,6 +141,14 @@ while True:
 	keypoints = datum.poseKeypoints # chop off the confidence levels
 	#print(keypoints.shape)
 	
+	if (len(list1) == 250):
+		person1['motion'].pop(0)
+		check = abs(np.sum(np.subtract(list1[150:178],list1[200:228])))
+		if (check < 1):
+			person1['motion'].append(check)
+		print(np.mean(person1['motion']))
+
+
 	if (keypoints.shape !=()):	
 		list1 = list1 + returnNormalizedKeypoints(keypoints[0])
 		#two people		
@@ -148,30 +158,30 @@ while True:
 		if (keypoints.shape[0]>2):
 			list3 = list3 + returnNormalizedKeypoints(keypoints[2])
 	   	#checking to see if we have enough data on person 1 to make a prediction
-		if len(list1)==300: #300 is because 6 seconds of data, 50 coords per second...aka  windowSize*50
+		if len(list1)==300: #300 is because 6 seconds of data, 25 (x,y) coords per second...aka  windowSize*50
 			b = model.predict_classes(np.expand_dims(list1, axis=0))
-			print ('person 1')
-			print(class_names[b[0]])
+			#print ('person 1')
+			#print(class_names[b[0]])
 			packageAndSend(class_names[b[0]])
 			#remove last two frames (50 data points each)
 			list1 = list1[100:]
 
 		if len(list2)==300:
 			b = model.predict_classes(np.expand_dims(list2, axis=0))
-			print('             Person 2')
-			print("             " + class_names[b[0]])
+			#print('             Person 2')
+			#print("             " + class_names[b[0]])
 			packageAndSend(class_names[b[0]])
 			#remove last two frames (50 data points each)
 			list2 = list2[100:]
 
 		if len(list3)==300:
 			b = model.predict_classes(np.expand_dims(list3, axis=0))
-			print('                            Person 3')
-			print('                                    ' + class_names[b[0]])
+			#print('                            Person 3')
+			#print('                                    ' + class_names[b[0]])
 			packageAndSend(class_names[b[0]])
 			#remove last two frames (50 data points each)
 			list3 = list3[100:]
-		
+
 
 		
 	loop+=1
