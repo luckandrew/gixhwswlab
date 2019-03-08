@@ -142,11 +142,26 @@ while True:
 	#print(keypoints.shape)
 	
 	if (len(list1) == 250):
-		person1['motion'].pop(0)
+		#Checking is there to make sure that we don't get weird valuess above 1 that could mess with our calculations (happens because we set 0 values to -1) 
 		check = abs(np.sum(np.subtract(list1[150:178],list1[200:228])))
 		if (check < 1):
+			person1['motion'].pop(0)
 			person1['motion'].append(check)
 		print(np.mean(person1['motion']))
+		
+		#if left or right foot is above knee
+		#high kick
+		if (list1[229] < list1[221] or list1[223] < list1[227]):
+		#and ):
+			print ('highkick')
+		
+		#if left hand x pos crosses center line and right arm is reaching out
+		if (list1[214] < list1[216] and (abs(list1[208]-list1[204])>abs(list1[214]-list1[202]))):
+			print('reaching right')
+		if (list1[208] > list1[216] and (abs(list1[214]-list1[210])>abs(list1[208]-list1[202]))):  
+			
+			print('reaching left')
+		
 
 
 	if (keypoints.shape !=()):	
