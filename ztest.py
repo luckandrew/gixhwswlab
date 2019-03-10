@@ -9,14 +9,15 @@ import numpy as np
 import tensorflow as tf
 from multiprocessing import Process,Queue,Pipe
 import OSC
+import scipy as sp
 c = OSC.OSCClient()
-# c.connect(('10.19.31.129', 57120))   # connect to SuperCollider
+c.connect(('10.19.33.79', 57120))   # connect to SuperCollider on surface
 # c.connect(('127.0.0.1', 57120))   # connect to SuperCollider IDE Local
-c.connect(('192.168.7.2', 57120)) # connect to Bela
+#c.connect(('192.168.7.2', 57120)) # connect to Bela
 import time
 
 
-class_names = ['cowbell', 'crouch', 'drums', 'guitar', 'handsup', 'headnod', 'tpose']
+class_names = ['RR', 'guitar-knees', 'bass', 'cowbell', 'piano', 'guitar', 'goats','clap','drums','dab','stand','throatcut','bow']
 #with CustomObjectScope({'GlorotUniform': glorot_uniform()}):
 		#model = load_model('imdb_mlp_model.h5')
 #
@@ -84,6 +85,37 @@ person1 = {'motion':[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
 #list21 = []
 #list22 = []
 tempMovements = []
+# list of  body keypoints as coordinates
+headX = 0 
+headY = 1
+neckX = 2
+neckY = 3
+rShoulderX = 4
+rShoulderY = 5
+rElbowX = 6
+rElbowY = 7
+rWristX = 8
+rWristY = 9
+lShoulderX = 10
+lShoudlerY = 11
+lElbowX = 12
+lElbowY = 13
+lWristX = 14
+lWristY = 15
+pelvisX = 16
+pelvisY = 17
+rHipX = 18
+rHipY = 19
+rKneeX = 20
+rKneeY = 21
+rAnkleX = 22
+rAnkleY = 23
+lHipX = 24
+lHipY = 25
+lKneeX = 26
+lKneeY = 27
+lAnkleX = 28
+lAnkleY = 29
 
 
 # Starting OpenPose
@@ -104,8 +136,10 @@ def packageAndSend(feature):
 		print('*************SENT TO MUSIC SERVER *****************')
 		oscmsg = OSC.OSCMessage()
 		oscmsg.setAddress("/bang")
-		oscmsg.append(most_common(tempMovements))
+		#oscmsg.append(most_common(tempMovements))
+		oscmsg.append('bang')
 		c.send(oscmsg)
+		#c.send('bang')
 		oldtime = time.time()
 		tempMovements = []
 	else:
@@ -124,14 +158,35 @@ def returnNormalizedKeypoints(keypoints):
 			temp.append(-1)
 	#returned the normalized keypoint
 	return temp
+#returns the percentage that x is between a and b,
+#assumes a is lower value and b is higher value
+def returnPercentage(x,a,b):
+	if (x >=a):
+		return 0
+	if (x <=b):
+		return 1
+	else:
+		return (x-a)/(b-a)
 
-#def returnLevelOfRandomness(keypointHistory):
-	
+
+def get_angle(p0, p1=np.array([0,0]), p2=None):
+	''' compute angle (in degrees) for p0p1p2 corner
+	Inputs:
+	p0,p1,p2 - points in the form of [x,y]
+	'''
+	if p2 is None:
+		p2 = p1 + np.array([1, 0])
+	v0 = np.array(p0) - np.array(p1)
+	v1 = np.array(p2) - np.array(p1)
+	angle = np.math.atan2(np.linalg.det([v0,v1]),np.dot(v0,v1))
+	return np.degrees(angle)
+
+
 datum = op.Datum()
 while True:
 	#need this to happen a bit after the program loads otherwise it throws a memory error
 	if loop ==3:
-		model=tf.keras.models.load_model('model_size6.h5')
+		model=tf.keras.models.load_model('model_size6_aug_1.h5')
 	ret,img = stream.read()
 	if (img.any()):
 		#print(img)
@@ -147,21 +202,58 @@ while True:
 		if (check < 1):
 			person1['motion'].pop(0)
 			person1['motion'].append(check)
-		print(np.mean(person1['motion']))
+		#print(np.mean(person1['motion']))
 		
 		#if left or right foot is above knee
 		#high kick
 		if (list1[229] < list1[221] or list1[223] < list1[227]):
 		#and ):
 			print ('highkick')
+				
+		#delta of hand movement 
+		#print("right:" + str(returnPercentage(list1[200+rWristY],list1[200+pelvisY],list1[200+headY])))
+		#print("left:" + str(returnPercentage(list1[200+lWristY],list1[200+pelvisY],list1[200+headY])))
+
 		
+		
+		
+		#compares the Y location of the ankle, neck, and pelvis to the previous frame's Y location, and gets hoe much of a percentage increase based on the Y value for their head  
+		percentageAnkleGain = returnPercentage(list1[200 + lAnkleY],list1[150+lAnkleY],list1[150+headY])
+		percentageNeckGain = returnPercentage(list1[200 + neckY],list1[150+neckY],list1[150+headY])
+		percentagePelvisGain = returnPercentage(list1[200 + pelvisY],list1[150+pelvisY],list1[150+headY])
+		if ( percentageAnkleGain > .004 and percentageNeckGain > .1 and percentagePelvisGain >.1):
+			print('REALLLLLJUMPPP')
+		
+		#print(percentagePelvisGain)
+
+
 		#if left hand x pos crosses center line and right arm is reaching out
-		if (list1[214] < list1[216] and (abs(list1[208]-list1[204])>abs(list1[214]-list1[202]))):
-			print('reaching right')
-		if (list1[208] > list1[216] and (abs(list1[214]-list1[210])>abs(list1[208]-list1[202]))):  
+		#if (list1[214] < list1[216] and (abs(list1[208]-list1[204])>abs(list1[214]-list1[202]))):
+		#	print('reaching right')
+		#if (list1[208] > list1[216] and (abs(list1[214]-list1[210])>abs(list1[208]-list1[202]))):  
 			
-			print('reaching left')
+		#	print('reaching left')
+
+		# arm bpm checker
+		#print("time:%s x:%s  y:%s"%(time.time(),list1[208],list1[209]))
+		#leftStrumLastFrame=(list1[214]-list1[208])*(list1[225]-list1[209])-(list1[215]-list1[209])*(list1[224]-list1[208])
+		#leftStrumPreviousFrame=(list1[164]-list1[158])*(list1[175]-list1[159])-(list1[165]-list1[159])*(list1[174]-list1[158])
+		#if (leftStrumLastFrame > 0 and leftStrumPreviousFrame < 0) or (leftStrumLastFrame < 0 and leftStrumPreviousFrame > 0):
+			#print('strum bass')
+
 		
+		#pOwer strum
+		currentAngle = get_angle([list1[200+rWristX],list1[200+rWristY]],[list1[200+rShoulderX],list1[200+rShoulderY]],[0,list1[200+rShoulderY]])
+		previousAngle = get_angle([list1[150+rWristX],list1[150+rWristY]],[list1[150+rShoulderX],list1[150+rShoulderY]],[0,list1[150+rShoulderY]])
+		print(currentAngle)
+		if (currentAngle>=90 and currentAngle <=170) and previousAngle<=-90:
+			print ('powerStrum')
+			
+		#guitar strum
+		#leftStrumLastFrame=(list1[208]-list1[214])*(list1[219]-list1[215])-(list1[209]-list1[215])*(list1[218]-list1[214])
+		#leftStrumPreviousFrame=(list1[158]-list1[164])*(list1[169]-list1[165])-(list1[159]-list1[165])*(list1[168]-list1[164])
+		#if (leftStrumLastFrame > 0 and leftStrumPreviousFrame < 0) or (leftStrumLastFrame < 0 and leftStrumPreviousFrame > 0):
+		#	print('strum guitar')
 
 
 	if (keypoints.shape !=()):	
@@ -175,8 +267,8 @@ while True:
 	   	#checking to see if we have enough data on person 1 to make a prediction
 		if len(list1)==300: #300 is because 6 seconds of data, 25 (x,y) coords per second...aka  windowSize*50
 			b = model.predict_classes(np.expand_dims(list1, axis=0))
-			#print ('person 1')
-			#print(class_names[b[0]])
+			print ('person 1')
+			print(class_names[b[0]])
 			packageAndSend(class_names[b[0]])
 			#remove last two frames (50 data points each)
 			list1 = list1[100:]
@@ -196,8 +288,6 @@ while True:
 			packageAndSend(class_names[b[0]])
 			#remove last two frames (50 data points each)
 			list3 = list3[100:]
-
-
 		
 	loop+=1
 	#if loop == 100:
