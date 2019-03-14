@@ -82,8 +82,14 @@ list1 = []
 list2 = []
 list3 = []
 motion = {1:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 2:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 3:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+drumHistory = {'left':[0,0],'right':[0,0]}
 #list21 = []
 #list22 = []
+ready = [0,0,0]
+state = {'mode':'begin','players':{'guitar':0,'bass':0,'drums':0}}
+#whatStateAreWeIn = {'mode':'begin','players':[]} #play, end
+
+#players = {'guitar':[-1],'bass':-1,'drums':-1}
 tempMovements = []
 # list of  body keypoints as coordinates
 headX = 0 
@@ -97,7 +103,7 @@ rElbowY = 7
 rWristX = 8
 rWristY = 9
 lShoulderX = 10
-lShoudlerY = 11
+lShoulderY = 11
 lElbowX = 12
 lElbowY = 13
 lWristX = 14
@@ -190,18 +196,111 @@ def get_angle(p0, p1=np.array([0,0]), p2=None):
 def checkForPose(history, person):
     history = np.reshape(history, (-1, 50))
     a = np.expand_dims(history, axis=0)
-    print(a.shape)
-    #c = np.reshape(a, (0,6,50))
-   # print(c.shape)
     b = model.predict(a)
     blist = []
     for i in b[0]:
 	blist.append(i)
+    #print ('person ' + str(person) +':' +  class_names[blist.index(max(b[0]))] + " confidence: " + str(max(b[0])))
+    if (max(b[0]) > .8):
+	if (state['mode'] == 'begin'):	
+		if (class_names[blist.index(max(b[0]))] == 'guitar' and state['players']['guitar'] ==0):
+			state['players']['guitar'] = person
+			print('player ' + str(person) + 'selected guitar')
+		elif(class_names[blist.index(max(b[0]))] == 'bass' and state['players']['guitar'] ==0):
+			state['players']['bass'] = person;
+			print('player ' + str(person) + 'selected bass')
+		elif(class_names[blist.index(max(b[0]))] == 'drums' and state['players']['guitar'] ==0):
+			state['players']['drums'] = person
+			print('player ' + str(person) + 'selected drums')
+		elif(class_names[blist.index(max(b[0]))] == 'bow'):
+			if (state['players']['guitar'] ==person or state['players']['bass']==person or state['players']['drums']==person): 
+				ready[person-1] = 1
+				print('player ' + str(person) + 'is ready')
+				if (ready[0]==1 and ready[1]==1 and ready[2]==1):
+					print('heading into play mode!')
+					state['mode'] = 'play'
+					print('in play mode')
+				else:
+					#print('waiting on other players...')
+					print('entering test mode')
+					state['mode']='test'
+	elif state['mode'] == 'play':
+		print ('person ' + str(person) +':' +  class_names[blist.index(max(b[0]))] + " confidence: " + str(max(b[0])))
     #print(class_names[blist.index(max(b[0]))])
-    print ('person ' + str(person) +':' +  class_names[blist.index(max(b[0]))] + " confidence: " + str(max(b[0])))
+    #print ('person ' + str(person) +':' +  class_names[blist.index(max(b[0]))] + " confidence: " + str(max(b[0])))
     #packageAndSend(class_names[b[0]])
     #print(type(b))    
     
+def checkDrumsDSP(side,handX,handY,history,currentFrame):
+	yMax = max(history[currentFrame + lShoulderY],history[currentFrame + rShoulderY])
+	yMin = min(history[currentFrame + lHipY],history[currentFrame + rHipY])
+	xMax = max(history[currentFrame + lShoulderX],history[currentFrame + lHipX])
+	xMin = min(history[currentFrame + rShoulderX],history[currentFrame + rHipX])
+	#adjust box after testing it out to avoid less false positives
+	yMax = yMax*.9
+	yMin = yMin*.9
+	xMax = xMax*1.1
+	xMin = xMin*.9
+
+	#here we check to see if their wrist is out of the safe zone(torso). 
+	#if it is out of the box, we send a drum hit depending on the location
+	#start with left hand 
+	if (history[currentFrame + handY] < yMax or history[currentFrame + handY] > yMin or history[currentFrame + handX] < xMin or history[currentFrame + handX] > xMax):
+		if (history[currentFrame + handY] < yMax):
+			if (history[currentFrame + handX] < xMin):
+			    #print(str(side) + ' quadrant 1')
+			    return 1
+			elif(history[currentFrame + handX] > xMax):
+			    #print(str(side) + 'quadrant 3')
+			    return 3
+			else:
+			    #print(str(side) + 'quadrant 2')
+			    return 2
+		else: #left hand is below waist
+			if (history[currentFrame + handX] < xMin):
+			    #print(str(side) + 'quadrant 4')
+			    return 4
+			elif(history[currentFrame + handX] > xMax):
+			    #print(str(side) + 'quadrant 6')
+			    return 6
+			else:
+			   # print(str(side) + 'quadrant 5')
+			    return 5
+		return 0
+
+def checkStrums(history,person,currentFrame, previousFrame):
+	strums = []
+	if (person == state['players']['bass']):
+		wrist1 = [lWristX,lWristY]
+		wrist2 = [rShoulderX,rShoulderY]
+		hip = [lHipX,lHipY]
+		shoulder = [rShoulderX,rShoulderY]
+		word = 'bass'
+	elif (person == state['players']['guitar']):
+		wrist1 = [rWristX,rWristY]
+		wrist2 = [rShoulderX,lShoulderY]
+		hip = [rHipX,rHipY]
+		shoulder = [lShoulderX,lShoulderY]
+		word = 'guitar'
+	for i in (currentFrame,previousFrame):
+		x = history[i  + wrist1[0]]
+		y = history[i  + wrist1[1]]
+		x1 = history[i + wrist2[0]]
+		y1 = history[i + wrist2[1]]
+		x2 = history[i + hip[0]]
+		y2 = history[i + hip[0]]
+		strums.append((x-x1)*(y2-y1)-(y-y1)*(x2-x1))
+	
+	if (strums[0] > 0 and strums[1] < 0) or (strums[0] < 0 and strums[1] > 0):
+		print('strum ' + word)
+        
+	currentAngle = get_angle([history[currentFrame+wrist1[0]],history[currentFrame+wrist1[1]]],[history[currentFrame+shoulder[0]],history[currentFrame+shoulder[1]]],[0,history[currentFrame+shoulder[1]]])
+	previousAngle = get_angle([history[previousFrame+wrist1[0]],history[previousFrame+wrist1[1]]],[history[previousFrame+shoulder[0]],history[previousFrame+shoulder[1]]],[0,history[previousFrame+shoulder[1]]])
+	previousFrame2 = previousFrame-50
+	previousAngle2 = get_angle([history[previousFrame2+wrist1[0]],history[previousFrame2+wrist1[1]]],[history[previousFrame2+shoulder[0]],history[previousFrame2+shoulder[1]]],[0,history[previousFrame2+shoulder[1]]])
+	#print(currentAngle)
+	if (currentAngle>=90 and previousAngle <=170) and (previousAngle<=-90 or previousAngle2 <=-90):
+	    print ('powerStrum ' + word)	
 
 def checkForDSP(history,person,currentFrame,previousFrame):
     #highkick
@@ -220,31 +319,7 @@ def checkForDSP(history,person,currentFrame,previousFrame):
     if ( percentageAnkleGain > .004 and percentageNeckGain > .1 and percentagePelvisGain >.1):
         print('REALLLLLJUMPPP')
 
-    if (person == 1):
-        strums = []
-        wrist1 = [lWristX,lWristY]
-        wrist2 = [rWristX,rWristY]
-        hip = [lHipX,lHipY]
-        shoulder = [rShoulderX,rShoulderY]
-        for i in (currentFrame,previousFrame):
-            x = history[i  + wrist1[0]]
-            y = history[i  + wrist1[1]]
-            x1 = history[i + wrist2[0]]
-            y1 = history[i + wrist2[1]]
-            x2 = history[i + hip[0]]
-            y2 = history[i + hip[0]]
-            strums.append((x-x1)*(y2-y1)-(y-y1)*(x2-x1))
-        
-        if (strums[0] > 0 and strums[1] < 0) or (strums[0] < 0 and strums[1] > 0):
-            print('strum bass')
-        
-        currentAngle = get_angle([history[currentFrame+wrist1[0]],history[currentFrame+wrist1[1]]],[history[currentFrame+shoulder[0]],history[currentFrame+shoulder[1]]],[0,history[currentFrame+shoulder[1]]])
-        previousAngle = get_angle([history[previousFrame+wrist1[0]],history[previousFrame+wrist1[1]]],[history[previousFrame+shoulder[0]],history[previousFrame+shoulder[1]]],[0,history[previousFrame+shoulder[1]]])
-	previousFrame2 = previousFrame-50
-	previousAngle2 = get_angle([history[previousFrame2+wrist1[0]],history[previousFrame2+wrist1[1]]],[history[previousFrame2+shoulder[0]],history[previousFrame2+shoulder[1]]],[0,history[previousFrame2+shoulder[1]]])
-        #print(currentAngle)
-        if (currentAngle>=90 and currentAngle <=170) and (previousAngle<=-90 or previousAngle2 <=-90):
-            print ('powerStrum bass ')
+    
 
     #pOwer strum
     #currentAngle = get_angle([history[currentFrame+rWristX],history[currentFrame+rWristY]],[history[currentFrame+rShoulderX],history[currentFrame+rShoulderY]],[0,history[currentFrame+rShoulderY]])
@@ -253,7 +328,15 @@ def checkForDSP(history,person,currentFrame,previousFrame):
     #if (currentAngle>=90 and currentAngle <=170) and previousAngle<=-90:
     #    print ('powerStrum')
 
+     #if left hand x pos crosses center line and right arm is reaching out
+        #if (list1[214] < list1[216] and (abs(list1[208]-list1[204])>abs(list1[214]-list1[202]))):
+        #   print('reaching right')
+        #if (list1[208] > list1[216] and (abs(list1[214]-list1[210])>abs(list1[208]-list1[202]))):  
+            
+        #   print('reaching left')
 
+
+    
     #TODO return 0,1,2
     #update randomness of motion if we got all the major keypoints
     if not (-1 in history[previousFrame:previousFrame+lAnkleX] or -1 in history[currentFrame:currentFrame+lAnkleX]):
@@ -261,6 +344,22 @@ def checkForDSP(history,person,currentFrame,previousFrame):
         motion[person].pop(0)
         motion[person].append(check)
 	#print("motion: " + str(np.mean(motion[person])))
+
+
+    if (person == state['players']['drums']):#drummer
+	if len(drumHistory['left']) > 5:
+		drumHistory['left'].pop(0)
+	if len(drumHistory['right']) > 5:
+		drumHistory['right'].pop(0)
+	drumHistory['left'].append(checkDrumsDSP('left',lWristX,lWristY,history,currentFrame))
+	drumHistory['right'].append(checkDrumsDSP('right',rWristX,rWristY,history,currentFrame))
+	
+	if drumHistory['left'][-1] and not drumHistory['left'][-2]:
+		print('left hand ' + str(drumHistory['left'][-1]))
+        if drumHistory['right'][-1] and not drumHistory['right'][-2]:
+		print('right hand ' + str(drumHistory['right'][-1]))
+        
+
 
 
 #begin while loop!
@@ -277,66 +376,6 @@ while True:
 
     keypoints = datum.poseKeypoints # chop off the confidence levels
     #print(keypoints.shape)
-    
-    #if (len(list1) == 250):
-        #Checking is there to make sure that we don't get weird valuess above 1 that could mess with our calculations (happens because we set 0 values to -1) 
-        #check = abs(np.sum(np.subtract(list1[150:178],list1[200:228])))
-        #if (check < 1):
-        #    person1['motion'].pop(0)
-        #    person1['motion'].append(check)
-        #print(np.mean(person1['motion']))
-        
-        #if left or right foot is above knee
-        #high kick
-        #if (list1[229] < list1[221] or list1[223] < list1[227]):
-        #and ):
-        #    print ('highkick')
-                
-        #delta of hand movement 
-        #print("right:" + str(returnPercentage(list1[200+rWristY],list1[200+pelvisY],list1[200+headY])))
-        #print("left:" + str(returnPercentage(list1[200+lWristY],list1[200+pelvisY],list1[200+headY])))
-
-        
-        
-        
-        #compares the Y location of the ankle, neck, and pelvis to the previous frame's Y location, and gets hoe much of a percentage increase based on the Y value for their head  
-        #percentageAnkleGain = returnPercentage(list1[200 + lAnkleY],list1[150+lAnkleY],list1[150+headY])
-        #percentageNeckGain = returnPercentage(list1[200 + neckY],list1[150+neckY],list1[150+headY])
-        #percentagePelvisGain = returnPercentage(list1[200 + pelvisY],list1[150+pelvisY],list1[150+headY])
-        #if ( percentageAnkleGain > .004 and percentageNeckGain > .1 and percentagePelvisGain >.1):
-         #   print('REALLLLLJUMPPP')
-        
-        #print(percentagePelvisGain)
-
-
-        #if left hand x pos crosses center line and right arm is reaching out
-        #if (list1[214] < list1[216] and (abs(list1[208]-list1[204])>abs(list1[214]-list1[202]))):
-        #   print('reaching right')
-        #if (list1[208] > list1[216] and (abs(list1[214]-list1[210])>abs(list1[208]-list1[202]))):  
-            
-        #   print('reaching left')
-
-        # arm bpm checker
-        #print("time:%s x:%s  y:%s"%(time.time(),list1[208],list1[209]))
-        #leftStrumLastFrame=(list1[214]-list1[208])*(list1[225]-list1[209])-(list1[215]-list1[209])*(list1[224]-list1[208])
-        #leftStrumPreviousFrame=(list1[164]-list1[158])*(list1[175]-list1[159])-(list1[165]-list1[159])*(list1[174]-list1[158])
-        #if (leftStrumLastFrame > 0 and leftStrumPreviousFrame < 0) or (leftStrumLastFrame < 0 and leftStrumPreviousFrame > 0):
-            #print('strum bass')
-
-        
-        #pOwer strum
-        #currentAngle = get_angle([list1[200+rWristX],list1[200+rWristY]],[list1[200+rShoulderX],list1[200+rShoulderY]],[0,list1[200+rShoulderY]])
-        #previousAngle = get_angle([list1[150+rWristX],list1[150+rWristY]],[list1[150+rShoulderX],list1[150+rShoulderY]],[0,list1[150+rShoulderY]])
-        #print(currentAngle)
-        #if (currentAngle>=90 and currentAngle <=170) and previousAngle<=-90:
-         #   print ('powerStrum')
-            
-        #guitar strum
-        #leftStrumLastFrame=(list1[208]-list1[214])*(list1[219]-list1[215])-(list1[209]-list1[215])*(list1[218]-list1[214])
-        #leftStrumPreviousFrame=(list1[158]-list1[164])*(list1[169]-list1[165])-(list1[159]-list1[165])*(list1[168]-list1[164])
-        #if (leftStrumLastFrame > 0 and leftStrumPreviousFrame < 0) or (leftStrumLastFrame < 0 and leftStrumPreviousFrame > 0):
-        #   print('strum guitar')
-
 
     if (keypoints.shape !=()):  
         list1 = list1 + returnNormalizedKeypoints(keypoints[0])
@@ -348,25 +387,35 @@ while True:
             list3 = list3 + returnNormalizedKeypoints(keypoints[2])
 
         #checking to see if we have enough data on person 1 to make a prediction
-        if len(list1)==250: 
-            checkForDSP(list1,1,frame5,frame4)
+        if len(list1)==250:
+	    if (state['mode']=='test'):
+	        checkStrums(list1,1,frame5,frame4)
+	    if (state['mode']=='play'):
+            	checkForDSP(list1,1,frame5,frame4)
         elif len(list1) ==300: #300 is because 6 seconds of data, 25 (x,y) coords per second...aka  windowSize*50
-            checkForDSP(list1,1,frame6,frame5)
+            if (state['mode']=='play'):
+		checkForDSP(list1,1,frame6,frame5)
             checkForPose(list1,1)
+	    if (state['mode']=='test'):
+		checkStrums(list1,1,frame5,frame4)
             list1 = list1[100:]
 
 
         if len(list2)==250:
-            checkForDSP(list2,2,frame5,frame4)
+            if (state['mode']=='play'):
+		checkForDSP(list2,2,frame5,frame4)
         elif len(list2) ==300:
-            checkForDSP(list2,2,frame6,frame5)
+            if (state['mode']=='play'):
+		checkForDSP(list2,2,frame6,frame5)
             checkForPose(list2,2)
             list2 = list2[100:]
 
         if len(list3)==250:
-            checkForDSP(list3,3,frame5,frame4)
+            if (state['mode']=='play'):
+		checkForDSP(list3,3,frame5,frame4)
         elif len(list3) ==300:
-            checkForDSP(list3,3,frame6,frame5)
+            if (state['mode']=='play'):
+		checkForDSP(list3,3,frame6,frame5)
             checkForPose(list3,3)
             list3 = list3[100:]
 
